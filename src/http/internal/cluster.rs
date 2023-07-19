@@ -22,12 +22,15 @@ pub async fn add_learner(
     State(app): State<Arc<ExampleApp>>,
     Json(node_addr): Json<String>,
 ) -> Json<ClientWriteResponse<ExampleTypeConfig>> {
-    let client = reqwest::Client::new();
     let uuid: Uuid =
-        client.get(format!("{node_addr}/uuid")).send().await.unwrap().json().await.unwrap();
+        reqwest::get(format!("{node_addr}/cluster/uuid")).await.unwrap().json().await.unwrap();
     let node = BasicNode { addr: node_addr };
     let res = app.raft.add_learner(uuid, node, false).await.unwrap();
     Json(res)
+}
+
+pub async fn uuid(State(app): State<Arc<ExampleApp>>) -> Json<Uuid> {
+    Json(app.id)
 }
 
 /// Changes specified learners to members, or remove members.
