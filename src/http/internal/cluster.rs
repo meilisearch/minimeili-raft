@@ -77,7 +77,7 @@ pub async fn get_membership(
         })
         .collect();
     nodes.extend(membership.learner_ids().map(|learner_uuid| {
-        (learner_uuid, membership.get_node(&learner_uuid).unwrap().addr.clone(), NodeRole::Voter)
+        (learner_uuid, membership.get_node(&learner_uuid).unwrap().addr.clone(), NodeRole::Learner)
     }));
     Json(nodes)
 }
