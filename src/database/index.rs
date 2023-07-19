@@ -91,6 +91,8 @@ impl IndexDatabase {
         rtxn: &RoTxn,
         mut writer: W,
     ) -> anyhow::Result<W> {
+        tracing::info!("extracting dump");
+
         let IndexDatabase { env: _, main, tasks, content } = self;
 
         let main: heed::Result<Vec<_>> = main
@@ -112,6 +114,8 @@ impl IndexDatabase {
         wtxn: &mut RwTxn,
         reader: R,
     ) -> anyhow::Result<()> {
+        tracing::info!("importing dump");
+
         let IndexDatabase { env: _, main, tasks, content } = self;
         let Dump { main: dump_main, tasks: dump_tasks, content: dump_content } =
             serde_json::from_reader(reader)?;

@@ -15,7 +15,6 @@ pub struct ExampleNetwork {}
 impl ExampleNetwork {
     pub async fn send_rpc<Req, Resp, Err>(
         &self,
-        target: ExampleNodeId,
         target_node: &BasicNode,
         uri: &str,
         req: Req,
@@ -23,7 +22,7 @@ impl ExampleNetwork {
     where
         Req: Serialize,
         Err: std::error::Error + DeserializeOwned,
-        Resp: DeserializeOwned,
+        Resp: DeserializeOwned + std::fmt::Debug,
     {
         let addr = &target_node.addr;
 
@@ -44,10 +43,7 @@ impl ExampleNetwork {
 
         tracing::debug!("client.post() is sent");
 
-        let res: Result<Resp, Err> =
-            resp.json().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
-
-        res.map_err(|e| RPCError::RemoteError(RemoteError::new(target, e)))
+        resp.json().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))
     }
 }
 
@@ -77,7 +73,7 @@ impl RaftNetwork<ExampleTypeConfig> for ExampleNetworkConnection {
         AppendEntriesResponse<ExampleNodeId>,
         RPCError<ExampleNodeId, BasicNode, RaftError<ExampleNodeId>>,
     > {
-        self.owner.send_rpc(self.target, &self.target_node, "raft-append", req).await
+        self.owner.send_rpc(&self.target_node, "raft/append", req).await
     }
 
     async fn send_install_snapshot(
@@ -87,7 +83,7 @@ impl RaftNetwork<ExampleTypeConfig> for ExampleNetworkConnection {
         InstallSnapshotResponse<ExampleNodeId>,
         RPCError<ExampleNodeId, BasicNode, RaftError<ExampleNodeId, InstallSnapshotError>>,
     > {
-        self.owner.send_rpc(self.target, &self.target_node, "raft-snapshot", req).await
+        self.owner.send_rpc(&self.target_node, "raft/snapshot", req).await
     }
 
     async fn send_vote(
@@ -97,6 +93,6 @@ impl RaftNetwork<ExampleTypeConfig> for ExampleNetworkConnection {
         VoteResponse<ExampleNodeId>,
         RPCError<ExampleNodeId, BasicNode, RaftError<ExampleNodeId>>,
     > {
-        self.owner.send_rpc(self.target, &self.target_node, "raft-vote", req).await
+        self.owner.send_rpc(&self.target_node, "raft/vote", req).await
     }
 }

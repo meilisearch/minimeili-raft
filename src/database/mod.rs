@@ -138,6 +138,7 @@ impl RaftStorage<ExampleTypeConfig> for Database {
                 EntryPayload::Normal(ref req) => match req {
                     ExampleRequest::LongTask { duration_sec } => {
                         let operation = SleepOperation { time_in_seconds: *duration_sec };
+                        tracing::debug!(%entry.log_id, "insert new operation {:?}", operation);
                         let task =
                             self.index.insert_new_operation(&mut index_wtxn, &operation).unwrap();
                         responses.push(ExampleResponse { new_task_id: Some(task) });

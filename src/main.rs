@@ -69,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
     // Create an application that will store all the instances created above, this will
     // be later used on the actix-web services.
     let state =
-        Arc::new(ExampleApp { id: node_uuid, addr: external_addr.clone(), raft, database, config });
+        Arc::new(ExampleApp { id: node_uuid, addr: internal_addr.clone(), raft, database, config });
 
     let external_server =
         axum::Server::bind(&external_addr.parse().context("Could not parse external address")?)

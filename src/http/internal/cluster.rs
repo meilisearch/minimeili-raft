@@ -22,8 +22,12 @@ pub async fn add_learner(
     State(app): State<Arc<ExampleApp>>,
     Json(node_addr): Json<String>,
 ) -> Json<ClientWriteResponse<ExampleTypeConfig>> {
-    let uuid: Uuid =
-        reqwest::get(format!("{node_addr}/cluster/uuid")).await.unwrap().json().await.unwrap();
+    let uuid: Uuid = reqwest::get(format!("http://{node_addr}/cluster/uuid"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
     let node = BasicNode { addr: node_addr };
     let res = app.raft.add_learner(uuid, node, false).await.unwrap();
     Json(res)
