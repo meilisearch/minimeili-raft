@@ -33,6 +33,8 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let Args { path, external_addr, internal_addr } = Args::parse();
 
+    tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).init();
+
     // Create a configuration for the raft instance.
     let config = Config {
         heartbeat_interval: 500,
