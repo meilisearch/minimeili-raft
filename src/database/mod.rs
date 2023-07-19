@@ -40,41 +40,6 @@ impl Database {
 }
 
 #[async_trait]
-impl RaftLogReader<ExampleTypeConfig> for Database {
-    /// Returns the last deleted log id and the last log id.
-    ///
-    /// The impl should not consider the applied log id in state machine.
-    /// The returned `last_log_id` could be the log id of the last present log entry, or the
-    /// `last_purged_log_id` if there is no entry at all.
-    // NOTE: This can be made into sync, provided all state machines will use atomic read or the
-    // like.
-    async fn get_log_state(
-        &mut self,
-    ) -> Result<LogState<ExampleTypeConfig>, StorageError<ExampleNodeId>> {
-        let rtxn = self.raft.read_txn().unwrap();
-        let last_log_id = self.raft.last_log_id(&rtxn).unwrap();
-        let last_purged_log_id = self.raft.last_purged_log_id(&rtxn).unwrap();
-        let last_log_id = last_log_id.or(last_purged_log_id);
-        Ok(LogState { last_purged_log_id, last_log_id })
-    }
-
-    /// Get a series of log entries from storage.
-    ///
-    /// The start value is inclusive in the search and the stop value is non-inclusive: `[start,
-    /// stop)`.
-    ///
-    /// Entry that is not found is allowed.
-    async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + fmt::Debug + Send + Sync>(
-        &mut self,
-        range: RB,
-    ) -> Result<Vec<Entry<ExampleTypeConfig>>, StorageError<ExampleNodeId>> {
-        let rtxn = self.raft.read_txn().unwrap();
-        let entries = self.raft.log_entries(&rtxn, range).unwrap();
-        Ok(entries)
-    }
-}
-
-#[async_trait]
 impl RaftStorage<ExampleTypeConfig> for Database {
     type SnapshotData = Cursor<Vec<u8>>;
     type LogReader = Self;
@@ -99,7 +64,7 @@ impl RaftStorage<ExampleTypeConfig> for Database {
     }
 
     async fn get_log_reader(&mut self) -> Self::LogReader {
-        todo!()
+        self.clone()
     }
 
     #[tracing::instrument(level = "trace", skip(self, entries))]
@@ -255,6 +220,41 @@ impl RaftStorage<ExampleTypeConfig> for Database {
 }
 
 #[async_trait]
+impl RaftLogReader<ExampleTypeConfig> for Database {
+    /// Returns the last deleted log id and the last log id.
+    ///
+    /// The impl should not consider the applied log id in state machine.
+    /// The returned `last_log_id` could be the log id of the last present log entry, or the
+    /// `last_purged_log_id` if there is no entry at all.
+    // NOTE: This can be made into sync, provided all state machines will use atomic read or the
+    // like.
+    async fn get_log_state(
+        &mut self,
+    ) -> Result<LogState<ExampleTypeConfig>, StorageError<ExampleNodeId>> {
+        let rtxn = self.raft.read_txn().unwrap();
+        let last_log_id = self.raft.last_log_id(&rtxn).unwrap();
+        let last_purged_log_id = self.raft.last_purged_log_id(&rtxn).unwrap();
+        let last_log_id = last_log_id.or(last_purged_log_id);
+        Ok(LogState { last_purged_log_id, last_log_id })
+    }
+
+    /// Get a series of log entries from storage.
+    ///
+    /// The start value is inclusive in the search and the stop value is non-inclusive: `[start,
+    /// stop)`.
+    ///
+    /// Entry that is not found is allowed.
+    async fn try_get_log_entries<RB: RangeBounds<u64> + Clone + fmt::Debug + Send + Sync>(
+        &mut self,
+        range: RB,
+    ) -> Result<Vec<Entry<ExampleTypeConfig>>, StorageError<ExampleNodeId>> {
+        let rtxn = self.raft.read_txn().unwrap();
+        let entries = self.raft.log_entries(&rtxn, range).unwrap();
+        Ok(entries)
+    }
+}
+
+#[async_trait]
 impl RaftSnapshotBuilder<ExampleTypeConfig, Cursor<Vec<u8>>> for Database {
     /// Build snapshot
     ///
@@ -268,40 +268,33 @@ impl RaftSnapshotBuilder<ExampleTypeConfig, Cursor<Vec<u8>>> for Database {
         &mut self,
     ) -> Result<Snapshot<ExampleNodeId, BasicNode, Cursor<Vec<u8>>>, StorageError<ExampleNodeId>>
     {
-        todo!()
+        let index_rtxn = self.index.read_txn().unwrap();
+        let mut raft_wtxn = self.raft.write_txn().unwrap();
 
-        // let data;
-        // let last_applied_log;
-        // let last_membership;
+        // Serialize the data of the state machine.
+        let mut data = Vec::new();
+        // TODO map the errors in a `StorageIOError`
+        self.index.extract_dump_to_writer(&index_rtxn, &mut data).unwrap();
 
-        // {
-        //     // Serialize the data of the state machine.
-        //     let state_machine =
-        //         SerializableExampleStateMachine::from(&*self.state_machine.read().await);
-        //     data = serde_json::to_vec(&state_machine)
-        //         .map_err(|e| StorageIOError::read_state_machine(&e))?;
+        let last_applied_log = self.raft.last_applied_log(&raft_wtxn).unwrap();
+        let last_membership = self.raft.last_membership(&raft_wtxn).unwrap();
 
-        //     last_applied_log = state_machine.last_applied_log;
-        //     last_membership = state_machine.last_membership;
-        // }
+        let snapshot_index = self.raft.snapshot_index(&raft_wtxn).unwrap() + 1;
+        self.raft.put_snapshot_index(&mut raft_wtxn, snapshot_index).unwrap();
 
-        // // TODO: we probably want this to be atomic.
-        // let snapshot_idx: u64 = self.get_snapshot_index_()? + 1;
-        // self.set_snapshot_index_(snapshot_idx).await?;
+        let snapshot_id = if let Some(last) = last_applied_log {
+            format!("{}-{}-{}", last.leader_id, last.index, snapshot_index)
+        } else {
+            format!("--{}", snapshot_index)
+        };
 
-        // let snapshot_id = if let Some(last) = last_applied_log {
-        //     format!("{}-{}-{}", last.leader_id, last.index, snapshot_idx)
-        // } else {
-        //     format!("--{}", snapshot_idx)
-        // };
+        let meta = SnapshotMeta { last_log_id: last_applied_log, last_membership, snapshot_id };
+        let snapshot = ExampleSnapshot { meta: meta.clone(), data: data.clone() };
+        self.raft.put_current_snapshot(&mut raft_wtxn, &snapshot).unwrap();
 
-        // let meta = SnapshotMeta { last_log_id: last_applied_log, last_membership, snapshot_id };
+        raft_wtxn.commit().unwrap();
 
-        // let snapshot = ExampleSnapshot { meta: meta.clone(), data: data.clone() };
-
-        // self.set_current_snapshot_(snapshot).await?;
-
-        // Ok(Snapshot { meta, snapshot: Box::new(Cursor::new(data)) })
+        Ok(Snapshot { meta, snapshot: Box::new(Cursor::new(data)) })
     }
 
     // NOTES:

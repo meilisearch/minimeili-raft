@@ -4,15 +4,11 @@ use std::path::Path;
 use heed::byteorder::BE;
 use heed::types::{DecodeIgnore, SerdeJson, Str, U64};
 use heed::{Database, Env, EnvOpenOptions, PolyDatabase, RoTxn, RwTxn};
-use once_cell::sync::OnceCell;
 use openraft::{BasicNode, Entry, LogId, StoredMembership, Vote};
-use synchronoise::SignalEvent;
 use uuid::Uuid;
 
 use crate::raft::store::ExampleSnapshot;
 use crate::raft::{ExampleNodeId, ExampleTypeConfig};
-
-static PRODUCER_SIGNAL_EVENT: OnceCell<SignalEvent> = OnceCell::new();
 
 #[derive(Debug, Clone)]
 pub struct RaftDatabase {
@@ -87,11 +83,6 @@ impl RaftDatabase {
 
     pub fn put_vote(&self, wtxn: &mut RwTxn, log: &Vote<ExampleNodeId>) -> heed::Result<()> {
         self.main.put::<Str, SerdeJson<_>>(wtxn, "vote", log)
-    }
-
-    pub fn logs(&self, rtxn: &RoTxn) -> heed::Result<()> {
-        // self.main.get::<Str, SerdeJson<_>>(rtxn, "vote")
-        todo!()
     }
 
     pub fn append_to_logs(
@@ -181,5 +172,13 @@ impl RaftDatabase {
 
     pub fn current_snapshot(&self, rtxn: &RoTxn) -> heed::Result<Option<ExampleSnapshot>> {
         self.main.get::<Str, SerdeJson<_>>(rtxn, "snapshot")
+    }
+
+    pub fn snapshot_index(&self, rtxn: &RoTxn) -> heed::Result<u64> {
+        self.main.get::<Str, U64<BE>>(rtxn, "snapshot-index").map(Option::unwrap_or_default)
+    }
+
+    pub fn put_snapshot_index(&self, wtxn: &mut RwTxn, index: u64) -> heed::Result<()> {
+        self.main.put::<Str, U64<BE>>(wtxn, "snapshot-index", &index)
     }
 }
