@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use openraft::Config;
 
-use super::{ExampleNodeId, ExampleRaft, ExampleStore};
+use super::{ExampleNodeId, ExampleRaft};
 use crate::database::Database;
 
 // Representation of an application state. This struct can be shared around to share
@@ -12,6 +12,5 @@ pub struct ExampleApp {
     pub database: Database,
     pub addr: String,
     pub raft: ExampleRaft,
-    pub store: Arc<ExampleStore>,
     pub config: Arc<Config>,
 }

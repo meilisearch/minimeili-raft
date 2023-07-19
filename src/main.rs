@@ -7,7 +7,6 @@ use http::{external, internal};
 use openraft::{Config, Raft};
 use raft::app::ExampleApp;
 use raft::network::ExampleNetwork;
-use raft::store::ExampleStore;
 
 mod database;
 mod http;
@@ -45,30 +44,30 @@ async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all(&path)
         .with_context(|| format!("Could not create database directory at '{}'", path.display()))?;
 
-    let db = database::Database::open_or_create(&path)
+    // Create a instance of where the Raft data will be stored.
+    // We decided to implement the Raft traits on the whole Database,
+    // It seems to be a good idea because we must apply entries to the IndexDatabase too!
+    let database = database::Database::open_or_create(&path)
         .with_context(|| format!("Could not open database at '{}'", path.display()))?;
 
     let node_uuid = {
-        let rtxn = db.read_txn()?;
-        db.uuid(&rtxn)?
+        let rtxn = database.raft.read_txn()?;
+        database.raft.uuid(&rtxn)?
     };
 
     let config = Arc::new(config.validate().unwrap());
-
-    // Create a instance of where the Raft data will be stored.
-    let store = Arc::new(ExampleStore::default());
 
     // Create the network layer that will connect and communicate the raft instances and
     // will be used in conjunction with the store created above.
     let network = ExampleNetwork {};
 
     // Create a local raft instance.
-    let raft = Raft::new(node_uuid, config.clone(), network, store.clone()).await.unwrap();
+    let raft = Raft::new(node_uuid, config.clone(), network, database.clone()).await.unwrap();
 
     // Create an application that will store all the instances created above, this will
     // be later used on the actix-web services.
     let state =
-        Arc::new(ExampleApp { id: node_uuid, addr: external_addr.clone(), raft, store, config });
+        Arc::new(ExampleApp { id: node_uuid, addr: external_addr.clone(), raft, database, config });
 
     let external_server =
         axum::Server::bind(&external_addr.parse().context("Could not parse external address")?)

@@ -23,7 +23,8 @@ pub async fn add_learner(
     Json(node_addr): Json<String>,
 ) -> Json<ClientWriteResponse<ExampleTypeConfig>> {
     let client = reqwest::Client::new();
-    let uuid: Uuid = client.get(format!("{node_addr}/uuid")).send().await.unwrap().json().unwrap();
+    let uuid: Uuid =
+        client.get(format!("{node_addr}/uuid")).send().await.unwrap().json().await.unwrap();
     let node = BasicNode { addr: node_addr };
     let res = app.raft.add_learner(uuid, node, false).await.unwrap();
     Json(res)

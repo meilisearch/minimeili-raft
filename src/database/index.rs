@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::io;
 use std::path::Path;
 use std::time::Duration;
 
@@ -43,6 +43,14 @@ impl IndexDatabase {
         Ok(database)
     }
 
+    pub fn write_txn(&self) -> heed::Result<RwTxn> {
+        self.env.write_txn()
+    }
+
+    pub fn read_txn(&self) -> heed::Result<RoTxn> {
+        self.env.read_txn()
+    }
+
     /// That is the simulation of a data to insert.
     pub fn show_tasks_of_duration(
         &self,
@@ -77,8 +85,12 @@ impl IndexDatabase {
         Ok(new_task_id)
     }
 
-    /// Export the content of the database into a file.
-    pub fn extract_dump_to_file(&self, rtxn: &RoTxn, mut file: File) -> anyhow::Result<File> {
+    /// Export the content of the database into a `io::Write`.
+    pub fn extract_dump_to_writer<W: io::Write>(
+        &self,
+        rtxn: &RoTxn,
+        mut writer: W,
+    ) -> anyhow::Result<W> {
         let IndexDatabase { env: _, main, tasks, content } = self;
 
         let main: heed::Result<Vec<_>> = main
@@ -86,21 +98,23 @@ impl IndexDatabase {
             .map(|r| r.map(|(k, v)| (k.to_vec(), v.to_vec())))
             .collect();
         let tasks: heed::Result<Vec<_>> = tasks.iter(rtxn)?.collect();
-        let content: heed::Result<Vec<_>> =
-            content.iter(rtxn)?.map(|r| r.map(|(s, ro)| (s.to_string(), ro))).collect();
+        let content: heed::Result<Vec<_>> = content.iter(rtxn)?.collect();
         let dump = Dump { main: main?, tasks: tasks?, content: content? };
 
-        file.set_len(0)?;
-        serde_json::to_writer(&mut file, &dump)?;
+        serde_json::to_writer(&mut writer, &dump)?;
 
-        Ok(file)
+        Ok(writer)
     }
 
     /// Erase the database and load the dumps
-    pub fn import_dump_from_file(&self, wtxn: &mut RwTxn, file: File) -> anyhow::Result<()> {
+    pub fn import_dump_from_reader<R: io::Read>(
+        &self,
+        wtxn: &mut RwTxn,
+        reader: R,
+    ) -> anyhow::Result<()> {
         let IndexDatabase { env: _, main, tasks, content } = self;
         let Dump { main: dump_main, tasks: dump_tasks, content: dump_content } =
-            serde_json::from_reader(file)?;
+            serde_json::from_reader(reader)?;
 
         // Clean the database
         main.clear(wtxn)?;

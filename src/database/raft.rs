@@ -1,4 +1,3 @@
-use std::fmt;
 use std::ops::RangeBounds;
 use std::path::Path;
 
@@ -7,10 +6,10 @@ use heed::types::{DecodeIgnore, SerdeJson, Str, U64};
 use heed::{Database, Env, EnvOpenOptions, PolyDatabase, RoTxn, RwTxn};
 use once_cell::sync::OnceCell;
 use openraft::{BasicNode, Entry, LogId, StoredMembership, Vote};
-use roaring::RoaringBitmap;
 use synchronoise::SignalEvent;
 use uuid::Uuid;
 
+use crate::raft::store::ExampleSnapshot;
 use crate::raft::{ExampleNodeId, ExampleTypeConfig};
 
 static PRODUCER_SIGNAL_EVENT: OnceCell<SignalEvent> = OnceCell::new();
@@ -101,7 +100,7 @@ impl RaftDatabase {
         entries: &[&Entry<ExampleTypeConfig>],
     ) -> heed::Result<()> {
         for entry in entries {
-            self.logs.put(wtxn, &entry.log_id.index, &entry)?
+            self.logs.put(wtxn, &entry.log_id.index, entry)?
         }
         Ok(())
     }
@@ -170,5 +169,17 @@ impl RaftDatabase {
 
     pub fn last_log_id(&self, rtxn: &RoTxn) -> heed::Result<Option<LogId<Uuid>>> {
         self.logs.last(rtxn).map(|r| r.map(|(_, entry)| entry.log_id))
+    }
+
+    pub fn put_current_snapshot(
+        &self,
+        wtxn: &mut RwTxn,
+        snapshot: &ExampleSnapshot,
+    ) -> heed::Result<()> {
+        self.main.put::<Str, SerdeJson<_>>(wtxn, "snapshot", snapshot)
+    }
+
+    pub fn current_snapshot(&self, rtxn: &RoTxn) -> heed::Result<Option<ExampleSnapshot>> {
+        self.main.get::<Str, SerdeJson<_>>(rtxn, "snapshot")
     }
 }

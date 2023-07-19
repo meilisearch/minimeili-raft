@@ -1,9 +1,9 @@
-use std::sync::Arc;
-
 use network::ExampleNetwork;
 use openraft::{BasicNode, Raft};
-use store::{ExampleRequest, ExampleResponse, ExampleStore};
+use store::{ExampleRequest, ExampleResponse};
 use uuid::Uuid;
+
+use crate::database::Database;
 
 pub mod app;
 pub mod network;
@@ -16,7 +16,7 @@ openraft::declare_raft_types!(
     pub ExampleTypeConfig: D = ExampleRequest, R = ExampleResponse, NodeId = ExampleNodeId, Node = BasicNode
 );
 
-pub type ExampleRaft = Raft<ExampleTypeConfig, ExampleNetwork, Arc<ExampleStore>>;
+pub type ExampleRaft = Raft<ExampleTypeConfig, ExampleNetwork, Database>;
 
 pub mod typ {
     use openraft::BasicNode;
