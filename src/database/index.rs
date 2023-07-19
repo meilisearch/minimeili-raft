@@ -61,7 +61,7 @@ impl IndexDatabase {
     }
 
     fn next_task_id(&self, rtxn: &RoTxn) -> heed::Result<Option<u32>> {
-        Ok(self.enqueued_tasks(rtxn)?.max().and_then(|x| x.checked_add(1)))
+        Ok(self.enqueued_tasks(rtxn)?.max().map_or(Some(0), |x| x.checked_add(1)))
     }
 
     pub fn insert_new_operation(
