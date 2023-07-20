@@ -3,11 +3,13 @@ use std::sync::Arc;
 use axum::body::Body;
 use axum::routing::{get, post, put};
 use axum::Router;
+pub use raft_target_uuid::X_RAFT_TARGET_UUID;
 
 use crate::raft::app::ExampleApp;
 
 mod cluster;
 mod raft;
+mod raft_target_uuid;
 
 /// Our internal app router.
 pub fn app(state: Arc<ExampleApp>) -> Router<(), Body> {

@@ -9,6 +9,7 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use super::{ExampleNodeId, ExampleTypeConfig};
+use crate::http::internal::X_RAFT_TARGET_UUID;
 
 pub struct ExampleNetwork {}
 
@@ -28,15 +29,13 @@ impl ExampleNetwork {
         let addr = &target_node.addr;
 
         let url = format!("http://{}/{}", addr, uri);
-
         tracing::debug!("send_rpc to url: {}", url);
-
         let client = reqwest::Client::new();
-
         tracing::debug!("client is created for: {}", url);
 
         let resp = client
             .post(url)
+            .header(&X_RAFT_TARGET_UUID, target.to_string())
             .json(&req)
             .send()
             .await
