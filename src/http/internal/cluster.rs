@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::extract::State;
@@ -50,6 +49,7 @@ pub async fn change_membership(
         .raft
         .change_membership(
             last_membership
+                .unwrap()
                 .nodes()
                 .map(|(node_uuid, _node)| *node_uuid)
                 .chain(std::iter::once(node_uuid)),
@@ -68,6 +68,7 @@ pub async fn get_membership(
         app.database.raft.last_membership(&rtxn).unwrap()
     };
 
+    let last_membership = last_membership.unwrap();
     let membership = last_membership.membership();
     // get_node.unwrap cannot fail, is in the list of voters
     let mut nodes: Vec<_> = membership
@@ -86,13 +87,6 @@ pub async fn get_membership(
 pub enum NodeRole {
     Voter,
     Learner,
-}
-
-/// Initialize a single-node cluster.
-pub async fn init(State(app): State<Arc<ExampleApp>>) {
-    let mut nodes = BTreeMap::new();
-    nodes.insert(app.id, BasicNode { addr: app.addr.clone() });
-    app.raft.initialize(nodes).await.unwrap();
 }
 
 /// Get the latest metrics of the cluster

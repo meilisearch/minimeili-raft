@@ -53,8 +53,8 @@ impl RaftDatabase {
     pub fn last_membership(
         &self,
         rtxn: &RoTxn,
-    ) -> heed::Result<StoredMembership<ExampleNodeId, BasicNode>> {
-        Ok(self.main.get::<Str, SerdeJson<_>>(rtxn, "last-membership")?.unwrap_or_default())
+    ) -> heed::Result<Option<StoredMembership<ExampleNodeId, BasicNode>>> {
+        self.main.get::<Str, SerdeJson<_>>(rtxn, "last-membership")
     }
 
     pub fn put_last_membership(

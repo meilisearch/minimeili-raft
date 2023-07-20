@@ -4,7 +4,9 @@ use std::sync::Arc;
 use anyhow::Context;
 use clap::Parser;
 use http::{external, internal};
-use openraft::{Config, Raft};
+use maplit::btreemap;
+use openraft::error::{InitializeError, RaftError};
+use openraft::{BasicNode, Config, Raft};
 use raft::app::ExampleApp;
 use raft::network::ExampleNetwork;
 
@@ -52,9 +54,14 @@ async fn main() -> anyhow::Result<()> {
     let database = database::Database::open_or_create(&path)
         .with_context(|| format!("Could not open database at '{}'", path.display()))?;
 
-    let node_uuid = {
+    let (node_uuid, nodes) = {
         let rtxn = database.raft.read_txn()?;
-        database.raft.uuid(&rtxn)?
+        let node_uuid = database.raft.uuid(&rtxn)?;
+        let nodes = match database.raft.last_membership(&rtxn)? {
+            Some(membership) => membership.nodes().map(|(a, b)| (*a, b.clone())).collect(),
+            None => btreemap! { node_uuid => BasicNode { addr: internal_addr.clone() }},
+        };
+        (node_uuid, nodes)
     };
 
     let config = Arc::new(config.validate().unwrap());
@@ -70,6 +77,14 @@ async fn main() -> anyhow::Result<()> {
     // be later used on the actix-web services.
     let state =
         Arc::new(ExampleApp { id: node_uuid, addr: internal_addr.clone(), raft, database, config });
+
+    // Initialize Raft by using the last_membership config.
+    match state.raft.initialize(nodes).await {
+        // It is safe to ignore, as it simply indicates that the cluster is already up
+        // and running, which is ultimately the goal of this function.
+        Ok(()) | Err(RaftError::APIError(InitializeError::NotAllowed(_))) => (),
+        e => panic!("{:?}", e),
+    }
 
     let external_server =
         axum::Server::bind(&external_addr.parse().context("Could not parse external address")?)

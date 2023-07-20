@@ -19,7 +19,6 @@ pub fn app(state: Arc<ExampleApp>) -> Router<(), Body> {
         .route("/cluster/membership", get(cluster::get_membership))
         .route("/cluster/membership", post(cluster::change_membership))
         .route("/cluster/uuid", get(cluster::uuid))
-        .route("/cluster/init", post(cluster::init))
         .route("/cluster/metrics", get(cluster::metrics))
         .with_state(state)
 }

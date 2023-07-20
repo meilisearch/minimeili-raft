@@ -115,7 +115,7 @@ impl RaftStorage<ExampleTypeConfig> for Database {
     > {
         let rtxn = self.raft.read_txn().unwrap();
         let last_applied_log = self.raft.last_applied_log(&rtxn).unwrap();
-        let last_membership = self.raft.last_membership(&rtxn).unwrap();
+        let last_membership = self.raft.last_membership(&rtxn).unwrap().unwrap_or_default();
         Ok((last_applied_log, last_membership))
     }
 
@@ -278,7 +278,7 @@ impl RaftSnapshotBuilder<ExampleTypeConfig, Cursor<Vec<u8>>> for Database {
         self.index.extract_dump_to_writer(&index_rtxn, &mut data).unwrap();
 
         let last_applied_log = self.raft.last_applied_log(&raft_wtxn).unwrap();
-        let last_membership = self.raft.last_membership(&raft_wtxn).unwrap();
+        let last_membership = self.raft.last_membership(&raft_wtxn).unwrap().unwrap();
 
         let snapshot_index = self.raft.snapshot_index(&raft_wtxn).unwrap() + 1;
         self.raft.put_snapshot_index(&mut raft_wtxn, snapshot_index).unwrap();
