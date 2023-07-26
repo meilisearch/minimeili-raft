@@ -10,6 +10,9 @@ use roaring::RoaringBitmap;
 use serde::{Deserialize, Serialize};
 use synchronoise::SignalEvent;
 
+use crate::raft::store::ExampleRequest;
+use crate::raft::ExampleRaft;
+
 static PRODUCER_SIGNAL_EVENT: OnceCell<SignalEvent> = OnceCell::new();
 
 #[derive(Debug, Clone)]
@@ -21,7 +24,10 @@ pub struct IndexDatabase {
 }
 
 impl IndexDatabase {
-    pub fn open_or_create(path: impl AsRef<Path>) -> heed::Result<IndexDatabase> {
+    pub fn open_or_create(
+        path: impl AsRef<Path>,
+        raft: ExampleRaft,
+    ) -> heed::Result<IndexDatabase> {
         let env = EnvOpenOptions::new()
             .map_size(20 * 1024 * 1024 * 1024) // 20GiB
             .max_dbs(3)
@@ -36,7 +42,7 @@ impl IndexDatabase {
         let database = IndexDatabase { env, main, tasks, content };
         let _signal = PRODUCER_SIGNAL_EVENT.get_or_init(|| {
             let database = database.clone();
-            std::thread::spawn(|| await_and_process_new_operations(database).unwrap());
+            std::thread::spawn(|| await_and_register_raft_tasks(database, raft).await.unwrap());
             SignalEvent::auto(true)
         });
 
@@ -62,6 +68,43 @@ impl IndexDatabase {
 
     fn next_task_id(&self, rtxn: &RoTxn) -> heed::Result<Option<u32>> {
         Ok(self.enqueued_tasks(rtxn)?.max().map_or(Some(0), |x| x.checked_add(1)))
+    }
+
+    pub fn process_that(&self, wtxn: &mut RwTxn, to_process: &RoaringBitmap) -> heed::Result<()> {
+        let mut tasks = Vec::new();
+        for task_id in to_process {
+            let task = self.tasks.get(&wtxn, &task_id)?.expect("an operation must always exists");
+            tasks.push((task_id, task));
+        }
+
+        let time_in_seconds = tasks.iter().map(|(_, operation)| operation.time_in_seconds).sum();
+        let duration = Duration::from_secs(time_in_seconds);
+        tracing::info!(
+            "Processing {:?} for {:.02?}...",
+            to_process.iter().collect::<Vec<_>>(),
+            duration
+        );
+        std::thread::sleep(duration);
+
+        // We store the id of the task that took this amount of time.
+        for (task_id, SleepOperation { time_in_seconds }) in tasks {
+            let duration_sec = Duration::from_secs(time_in_seconds).as_secs();
+            let mut bitmap = self.content.get(&wtxn, &duration_sec)?.unwrap_or_default();
+            bitmap.insert(task_id);
+            self.content.put(&mut wtxn, &duration_sec, &bitmap)?;
+        }
+
+        // Once we finish processing the task we write it in the tasks list.
+        let mut bitmap = self.processed_tasks(&wtxn)?;
+        bitmap |= to_process;
+        self.put_processed_tasks(&mut wtxn, &bitmap)?;
+        tracing::info!(
+            "Processed {:?} which took {:.02?}!",
+            to_process.iter().collect::<Vec<_>>(),
+            duration
+        );
+
+        Ok(())
     }
 
     pub fn insert_new_operation(
@@ -166,41 +209,24 @@ impl IndexDatabase {
     }
 }
 
-fn await_and_process_new_operations(database: IndexDatabase) -> heed::Result<()> {
+async fn await_and_register_raft_tasks(
+    database: IndexDatabase,
+    raft: ExampleRaft,
+) -> heed::Result<()> {
     loop {
         // We wait for the OnceCell to init and wait for the signal to be true
         PRODUCER_SIGNAL_EVENT.wait().wait();
 
-        // We process ALL the new enqueued tasks and break when nothing new is found
-        loop {
-            // Once we found that there is a new task to process we find the new ones
-            // to process and pick the smallest one.
-            let mut wtxn = database.write_txn()?;
-            let to_process = match database.enqueued_tasks(&wtxn)?.min() {
-                Some(task_id) => task_id,
-                None => break,
-            };
+        // Once we found that there is a new task to process we find the new ones
+        // to process and pick the smallest one.
+        let wtxn = database.write_txn()?;
 
-            let SleepOperation { time_in_seconds } =
-                database.tasks.get(&wtxn, &to_process)?.expect("an operation must always exists");
-            let duration = Duration::from_secs(time_in_seconds);
-            tracing::info!("Processing {} for {:.02?}...", to_process, duration);
-            std::thread::sleep(duration);
-
-            // We store the id of the task that took this amount of time.
-            let duration_sec = duration.as_secs();
-            let mut bitmap = database.content.get(&wtxn, &duration_sec)?.unwrap_or_default();
-            bitmap.insert(to_process);
-            database.content.put(&mut wtxn, &duration_sec, &bitmap)?;
-
-            // Once we finish processing the task we write it in the tasks list.
-            let mut bitmap = database.processed_tasks(&wtxn)?;
-            bitmap.insert(to_process);
-            database.put_processed_tasks(&mut wtxn, &bitmap)?;
-            tracing::info!("Processed {} which took {:.02?}!", to_process, duration);
-
-            // TODO talk about this with Louis
-            wtxn.commit()?;
+        // We must ensure we are the leader and we successfuly committed the task.
+        // As a leader we could have failed to commit the task and the leadership
+        // could have swapped to another machine.
+        if raft.is_leader().await.is_ok() {
+            let to_process = database.enqueued_tasks(&wtxn)?;
+            raft.client_write(ExampleRequest::ProcessThat { task_ids: to_process }).await.unwrap();
         }
     }
 }

@@ -1,4 +1,5 @@
 use openraft::{BasicNode, SnapshotMeta};
+use roaring::RoaringBitmap;
 use serde::{Deserialize, Serialize};
 
 use super::ExampleNodeId;
@@ -11,6 +12,7 @@ use super::ExampleNodeId;
  */
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ExampleRequest {
+    ProcessThat { task_ids: RoaringBitmap },
     LongTask { duration_sec: u64 },
 }
 

@@ -41,6 +41,8 @@ impl ExampleNetwork {
             .await
             .map_err(|e| RPCError::Network(NetworkError::new(&e)))?;
 
+        // TODO react to a bad request and remove node from the cluster if too many/first of them.
+
         tracing::debug!("client.post() is sent");
 
         resp.json().await.map_err(|e| RPCError::Network(NetworkError::new(&e)))

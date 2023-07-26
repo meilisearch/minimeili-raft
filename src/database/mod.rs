@@ -16,7 +16,7 @@ pub use self::index::IndexDatabase;
 pub use self::raft::RaftDatabase;
 use crate::database::index::SleepOperation;
 use crate::raft::store::{ExampleRequest, ExampleResponse, ExampleSnapshot};
-use crate::raft::{ExampleNodeId, ExampleTypeConfig};
+use crate::raft::{ExampleNodeId, ExampleRaft, ExampleTypeConfig};
 
 #[derive(Clone)]
 pub struct Database {
@@ -25,7 +25,7 @@ pub struct Database {
 }
 
 impl Database {
-    pub fn open_or_create(path: impl AsRef<Path>) -> anyhow::Result<Database> {
+    pub fn open_or_create(path: impl AsRef<Path>, raft: ExampleRaft) -> anyhow::Result<Database> {
         let raft_path = path.as_ref().join("raft");
         let index_path = path.as_ref().join("index");
 
@@ -34,7 +34,7 @@ impl Database {
 
         Ok(Database {
             raft: RaftDatabase::open_or_create(raft_path)?,
-            index: IndexDatabase::open_or_create(index_path)?,
+            index: IndexDatabase::open_or_create(index_path, raft)?,
         })
     }
 }
@@ -136,6 +136,11 @@ impl RaftStorage<ExampleTypeConfig> for Database {
             match entry.payload {
                 EntryPayload::Blank => responses.push(ExampleResponse { new_task_id: None }),
                 EntryPayload::Normal(ref req) => match req {
+                    ExampleRequest::ProcessThat { task_ids } => {
+                        tracing::debug!(%entry.log_id, "computing multiple tasks {:?}", task_ids);
+                        self.index.process_that(&mut index_wtxn, task_ids).unwrap();
+                        responses.push(ExampleResponse { new_task_id: None }); // TODO make it more clear
+                    }
                     ExampleRequest::LongTask { duration_sec } => {
                         let operation = SleepOperation { time_in_seconds: *duration_sec };
                         tracing::debug!(%entry.log_id, "insert new operation {:?}", operation);
@@ -186,14 +191,15 @@ impl RaftStorage<ExampleTypeConfig> for Database {
 
         // Update the state machine.
         let mut index_wtxn = self.index.write_txn().unwrap();
-        // TODO map the erro into a `StorageIOError`
+        // TODO map the error into a `StorageIOError`
         // TODO prefer directly using the raw bytes
         self.index
             .import_dump_from_reader(&mut index_wtxn, Cursor::new(&new_snapshot.data[..]))
             .unwrap();
 
         // Update current snapshot in the Raft store.
-        let mut raft_wtxn = self.index.write_txn().unwrap();
+        let mut raft_wtxn = self.raft.write_txn().unwrap();
+        // TODO it's too big to store in LMDB
         self.raft.put_current_snapshot(&mut raft_wtxn, &new_snapshot).unwrap();
 
         // TODO what should we do if the first txn commits but not the second one?
